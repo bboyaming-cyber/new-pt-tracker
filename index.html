@@ -132,11 +132,19 @@
 <div id="login">
   <div class="logo">PT TRACKER</div>
   <h1>課堂追蹤系統</h1>
-  <p>輸入你嘅電郵，會收到一條登入連結。<br>同一個電郵手機電腦都登到，資料自動同步。</p>
+  <p>輸入電郵，會收到一個 6 位數字驗證碼。<br>同一個電郵手機電腦都登到，資料自動同步。</p>
   <div class="card-login">
-    <label class="lbl">電郵地址</label>
-    <input type="email" id="email" placeholder="you@example.com" autocomplete="email">
-    <button class="btn btn-accent" id="send-link">傳送登入連結</button>
+    <div id="step-email">
+      <label class="lbl">電郵地址</label>
+      <input type="email" id="email" placeholder="you@example.com" autocomplete="email" inputmode="email">
+      <button class="btn btn-accent" id="send-code">傳送驗證碼</button>
+    </div>
+    <div id="step-code" style="display:none;">
+      <label class="lbl">輸入收到嘅 6 位數字驗證碼</label>
+      <input type="text" id="code" placeholder="例如 123456" inputmode="numeric" autocomplete="one-time-code" maxlength="6">
+      <button class="btn btn-accent" id="verify-code">確認登入</button>
+      <button class="btn btn-ghost" id="back-email" style="margin-top:8px;">‹ 改電郵 / 重新傳送</button>
+    </div>
     <p id="login-msg" style="margin-top:14px;margin-bottom:0;display:none;"></p>
   </div>
 </div>
@@ -197,14 +205,40 @@
     return Math.floor((b-a)/(7*864e5))+1;
   }
 
-  $('#send-link').onclick = async () => {
+  let pendingEmail = '';
+  const lmsg = (txt,ok) => { const m=$('#login-msg'); m.style.display='block'; m.textContent=txt; m.style.color = ok?'var(--green)':'var(--red)'; };
+
+  $('#send-code').onclick = async () => {
     const email = $('#email').value.trim();
     if(!email){ toast('請輸入電郵'); return; }
-    const msg = $('#login-msg'); msg.style.display='block'; msg.textContent='傳送緊…';
-    const { error } = await sb.auth.signInWithOtp({ email, options:{ emailRedirectTo: window.location.href }});
-    msg.textContent = error ? ('出錯：'+error.message) : '✓ 已傳送！請去電郵撳個連結登入。';
-    msg.style.color = error ? 'var(--red)' : 'var(--green)';
+    lmsg('傳送緊…', true);
+    // shouldCreateUser:true 容許第一次用呢個電郵就直接收碼登入
+    const { error } = await sb.auth.signInWithOtp({ email, options:{ shouldCreateUser:true }});
+    if(error){ lmsg('出錯：'+error.message, false); return; }
+    pendingEmail = email;
+    $('#step-email').style.display='none';
+    $('#step-code').style.display='block';
+    lmsg('✓ 驗證碼已傳送，請查電郵（如冇見，睇下垃圾郵件）', true);
+    setTimeout(()=>$('#code').focus(), 100);
   };
+
+  $('#verify-code').onclick = async () => {
+    const token = $('#code').value.trim();
+    if(token.length<6){ toast('請輸入 6 位數字'); return; }
+    lmsg('驗證緊…', true);
+    const { error } = await sb.auth.verifyOtp({ email:pendingEmail, token, type:'email' });
+    if(error){ lmsg('驗證碼唔啱或已過期，請再試', false); return; }
+    // 成功 → onAuthStateChange 會自動 boot()
+  };
+  $('#code').addEventListener('keydown', e=>{ if(e.key==='Enter') $('#verify-code').click(); });
+
+  $('#back-email').onclick = () => {
+    $('#step-code').style.display='none';
+    $('#step-email').style.display='block';
+    $('#login-msg').style.display='none';
+    $('#code').value='';
+  };
+
   $('#logout').onclick = async () => { await sb.auth.signOut(); location.reload(); };
 
   sb.auth.onAuthStateChange((_e, session) => { if(session) boot(); });
